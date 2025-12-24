@@ -162,11 +162,16 @@ class Visualizer:
         for i, vec in enumerate(rotated):
             if mode == "front":
                 target = (int(origin[0] + vec[0]), int(origin[1] + vec[1]))
+
             elif mode == "side":
-                target = (int(origin[0] + vec[2]), int(origin[1] + vec[1]))
+                # vec[2] is Depth (Z), vec[1] is Vertical (Y)
+                # We subtract vec[1] to flip the screen's 'down' to be 'up'
+                # and use vec[2] to handle horizontal depth
+                target = (int(origin[0] - vec[2]), int(origin[1] + vec[1]))
+
             elif mode == "top":
-                # Invert Z-axis for a true top-down view
                 target = (int(origin[0] + vec[0]), int(origin[1] - vec[2]))
+
             cv2.line(img, origin, target, colors[i], 2)
 
     def show(self, main_frame, f_view, s_view, t_view):

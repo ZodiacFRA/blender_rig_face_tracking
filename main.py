@@ -5,7 +5,7 @@ import numpy as np
 
 from video import CameraSource, Visualizer
 from PoseEstimators import CustomPoseEstimator, PnPPoseEstimator
-from utils import NetworkSender, LandmarkDetector
+from utils import NetworkSender, LandmarkDetector, normalize_face, to_degrees
 
 
 class AppController:
@@ -29,6 +29,18 @@ class AppController:
 
         # Fixed scale for debug views (Calculated at first frame or 'c')
         self.initial_face_scale = None
+
+        # Landmark indexes to be sent to blender
+        self.needed_landmarks_indexes = [
+            152,  # Chin
+            # 70,  # eyebrow_lateral.R
+            # 107,  # eyebriw_median.R
+            # 336,  # eyebrow_lateral.L
+            # 300,  # eyebriw_median.L
+        ]
+
+    def __del__(self):
+        self.cleanup()
 
     def _init_camera_params(self, w, h):
         """Generates a generic camera matrix based on frame size."""
@@ -54,46 +66,6 @@ class AppController:
             # We want the head to occupy ~65% of the debug pane height
             self.initial_face_scale = 0.65 / face_height
             print(f"Scale Calibrated: {self.initial_face_scale:.2f}")
-
-    def run(self):
-        self._print_start_message()
-
-        while self.is_running:
-            success, frame = self.camera.get_frame()
-            if not success:
-                break
-
-            h, w, _ = frame.shape
-            if self.camera_matrix is None:
-                self._init_camera_params(w, h)
-
-            # 1. Detection
-            landmarks_result = self.detector.process_async(frame)
-
-            # 2. Processing & Networking
-            views = None
-            if landmarks_result and landmarks_result.face_landmarks:
-                face_lms = landmarks_result.face_landmarks[0]
-
-                # Calibration check
-                if self.initial_face_scale is None:
-                    self._calibrate_scale(face_lms)
-
-                # Estimation & Sync
-                euler_angles = self._get_euler_angles(face_lms, w, h)
-                self.sender.send_pose(euler_angles)
-
-                # Visualization Data
-                if self.visualize:
-                    views = self._generate_debug_views(
-                        frame, face_lms, euler_angles, w, h
-                    )
-
-            # 3. UI Rendering & Input
-            if self.visualize:
-                self._handle_ui(frame if views is None else views[0], views)
-
-        self.cleanup()
 
     def _get_euler_angles(self, face_lms, w, h):
         """Encapsulates the pose estimation logic."""
@@ -141,14 +113,52 @@ class AppController:
         elif key == ord("c"):
             self.initial_face_scale = None
 
-    def _print_start_message(self):
-        print(f"--- Head Rig Dashboard [Mode: {self.mode}] ---")
-        msg = (
-            "Keys: 'q' to Quit | 'c' to Recalibrate"
-            if self.visualize
-            else "Running Headless. Ctrl+C to stop."
-        )
-        print(msg)
+    def run(self):
+        while self.is_running:
+            success, frame = self.camera.get_frame()
+            if not success:
+                return
+
+            h, w, _ = frame.shape
+            if self.camera_matrix is None:
+                self._init_camera_params(w, h)
+
+            # 1. Detection
+            landmarks_result = self.detector.process_async(frame)
+
+            # 2. Processing & Networking
+            views = None
+            if landmarks_result and landmarks_result.face_landmarks:
+                face_lms = landmarks_result.face_landmarks[0]
+
+                # Calibration check
+                if self.initial_face_scale is None:
+                    self._calibrate_scale(face_lms)
+
+                # Estimation & Sync
+                euler_angles = self._get_euler_angles(face_lms, w, h)
+
+                # Transform landmarks position into root bone space
+                local_data = normalize_face(face_lms, euler_angles)
+                # filter out useless face landmarks before sending
+                local_data = {i: local_data[i] for i in self.needed_landmarks_indexes}
+                # Send data
+                self.sender.send_pose(
+                    {
+                        "head_rotation": euler_angles.tolist(),
+                        "landmarks_positions": local_data,
+                    }
+                )
+
+                # Visualization Data
+                if self.visualize:
+                    views = self._generate_debug_views(
+                        frame, face_lms, euler_angles, w, h
+                    )
+
+            # 3. UI Rendering & Input
+            if self.visualize:
+                self._handle_ui(frame if views is None else views[0], views)
 
     def cleanup(self):
         self.camera.release()
@@ -174,4 +184,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     app = AppController(mode=args.mode, visualize=args.viz)
+    print(f"--- Head Rig Dashboard [Mode: {args.mode}] ---")
+    msg = (
+        "Keys: 'q' to Quit | 'c' to Recalibrate"
+        if args.viz
+        else "Running Headless. Ctrl+C to stop."
+    )
+    print(msg)
     app.run()

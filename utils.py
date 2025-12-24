@@ -1,6 +1,7 @@
 import time
 import json
 import socket
+import math
 
 import mediapipe as mp
 import numpy as np
@@ -37,23 +38,15 @@ class NetworkSender:
         self.port = port
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    def send_pose(self, euler_angles):
+    def send_pose(self, data):
         """
-        Takes euler_angles (pitch, yaw, roll) in RADIANS,
-        converts to DEGREES, and sends via UDP.
+        Takes a dictionary with:
+          - 'head_rotation': [pitch, yaw, roll] in RADIANS
+          - 'landmarks_positions': {idx: [x, y, z]} (optional)
+        Converts rotation to DEGREES and sends via UDP.
         """
-        if euler_angles is None:
+        if data is None:
             return
-
-        pitch, yaw, roll = euler_angles
-
-        # 1. Convert Radians to Degrees for the Blender script
-        data = {
-            "p": float(np.degrees(pitch)),
-            "y": float(np.degrees(yaw)),
-            "r": float(np.degrees(roll)),
-        }
-
         # 2. Serialize and Send
         try:
             msg = json.dumps(data).encode("utf-8")
@@ -61,3 +54,60 @@ class NetworkSender:
         except Exception as e:
             # We print instead of raise to keep the camera loop running
             print(f"UDP Send Error: {e}")
+
+
+def to_degrees(p, y, r):
+    return (float(np.degrees(p)), float(np.degrees(y)), float(np.degrees(r)))
+
+
+def normalize_face(face_landmarks, euler_angles, center_idx=6):
+    """
+    Translates and rotates landmarks so the head is centered at (0,0,0)
+    and facing perfectly forward (0,0,0 rotation).
+
+    :param face_landmarks: MediaPipe face_landmarks.landmark list
+    :param euler_angles: list/array of [pitch, yaw, roll] in radians
+    :param center_idx: The landmark to use as the local origin (6 is nose bridge)
+    :return: Dictionary of normalized {index: [x, y, z]}
+    """
+    p, y, r = euler_angles
+
+    # 1. Create Rotation Matrices for each axis
+    # Note: Using negative angles to "un-rotate"
+    Rx = np.array(
+        [[1, 0, 0], [0, math.cos(-p), -math.sin(-p)], [0, math.sin(-p), math.cos(-p)]]
+    )
+    Ry = np.array(
+        [[math.cos(-y), 0, math.sin(-y)], [0, 1, 0], [-math.sin(-y), 0, math.cos(-y)]]
+    )
+    Rz = np.array(
+        [[math.cos(-r), -math.sin(-r), 0], [math.sin(-r), math.cos(-r), 0], [0, 0, 1]]
+    )
+
+    # Combined Inverse Rotation Matrix (Order depends on your estimation order)
+    # Usually YXZ or ZYX for heads
+    R_inv = Rz @ Ry @ Rx
+
+    # 2. Get the Origin (Anchor)
+    anchor = face_landmarks[center_idx]
+    origin = np.array([anchor.x, anchor.y, anchor.z])
+
+    normalized_lms = {}
+
+    # List of landmarks to track (Chin, Mouth corners, Eyebrows, etc.)
+    target_indices = [152, 10, 13, 14, 33, 263]
+
+    for idx in target_indices:
+        lm = face_landmarks[idx]
+        # Current point as vector
+        pt = np.array([lm.x, lm.y, lm.z])
+
+        # Translate to origin
+        rel_pt = pt - origin
+
+        # Rotate back to neutral
+        neutral_pt = R_inv @ rel_pt
+
+        normalized_lms[idx] = neutral_pt.tolist()
+
+    return normalized_lms
