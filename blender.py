@@ -28,7 +28,7 @@ class FaceTrackReceiver(bpy.types.Operator):
         latest_data = None
         try:
             while True:
-                data, _ = self._sock.recvfrom(2048)
+                data, _ = self._sock.recvfrom(4096 * 2)
                 latest_data = data
         except BlockingIOError:
             pass
@@ -48,13 +48,7 @@ class FaceTrackReceiver(bpy.types.Operator):
             root.rotation_euler = (pitch, -roll, yaw)
 
         # 2. Update Landmarks
-        landmarks = msg.get("landmarks_positions", {})
-        for idx, (lx, ly, lz) in landmarks.items():
-            print(idx, (lx, ly, lz))
-            lm_bone = armature.pose.bones.get(f"lm_{idx}")
-            if lm_bone:
-                # Coordinate Mapping: MP(x,y,z) -> Blender(x, -z, -y)
-                lm_bone.location = (lx, -lz, -ly)
+        blendshapes = msg.get("blendshapes", {})
 
     # --- Modal Logic ---
 

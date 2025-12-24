@@ -1,3 +1,4 @@
+from pprint import pprint
 import argparse
 
 import cv2
@@ -5,7 +6,7 @@ import numpy as np
 
 from video import CameraSource, Visualizer
 from PoseEstimators import CustomPoseEstimator, PnPPoseEstimator
-from utils import NetworkSender, LandmarkDetector, normalize_face, to_degrees
+from utils import NetworkSender, LandmarkDetector, to_degrees
 
 
 class AppController:
@@ -29,15 +30,6 @@ class AppController:
 
         # Fixed scale for debug views (Calculated at first frame or 'c')
         self.initial_face_scale = None
-
-        # Landmark indexes to be sent to blender
-        self.needed_landmarks_indexes = {
-            "chin": 152,
-            # 70,  # eyebrow_lateral.R
-            # 107,  # eyebriw_median.R
-            # 336,  # eyebrow_lateral.L
-            # 300,  # eyebriw_median.L
-        }
 
     def __del__(self):
         self.cleanup()
@@ -129,6 +121,7 @@ class AppController:
             # 2. Processing & Networking
             views = None
             if landmarks_result and landmarks_result.face_landmarks:
+
                 face_lms = landmarks_result.face_landmarks[0]
 
                 # Calibration check
@@ -138,17 +131,14 @@ class AppController:
                 # Estimation & Sync
                 euler_angles = self._get_euler_angles(face_lms, w, h)
 
-                # Transform landmarks position into root bone space
-                local_data = normalize_face(face_lms, euler_angles)
-                # filter out useless face landmarks before sending
-                local_data = {
-                    k: local_data[i] for k, i in self.needed_landmarks_indexes.items()
-                }
+                blendshape_data = {}
+                for blendshape in landmarks_result.face_blendshapes[0]:
+                    blendshape_data[blendshape.category_name] = blendshape.score
                 # Send data
                 self.sender.send_pose(
                     {
                         "head_rotation": euler_angles.tolist(),
-                        "landmarks_positions": local_data,
+                        "blendshapes": blendshape_data,
                     }
                 )
 
