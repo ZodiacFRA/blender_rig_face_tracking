@@ -49,6 +49,26 @@ class FaceTrackReceiver(bpy.types.Operator):
 
         # 2. Update Landmarks
         blendshapes = msg.get("blendshapes", {})
+        self._move_chin_ik(armature, blendshapes.get("jawOpen", 0))
+
+    def _move_chin_ik(self, armature, chin_score):
+        """
+        Moves the chin_target bone along its local Z axis.
+        chin_score: float [0, 1] representing jaw openness.
+        """
+        # 1. Access the armature object
+        chin_target = armature.pose.bones.get("chin_target")
+        print(chin_score)
+        if not chin_target:
+            return
+
+        # Define how far the chin moves at maximum (1.0)
+        # Adjust this value (e.g., -0.2) based on your model's scale
+        max_displacement = -2
+
+        # Update the local Z location
+        # Index 0=X, 1=Y, 2=Z
+        chin_target.location[2] = chin_score * max_displacement
 
     # --- Modal Logic ---
 
