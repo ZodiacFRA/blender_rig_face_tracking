@@ -31,13 +31,13 @@ class AppController:
         self.initial_face_scale = None
 
         # Landmark indexes to be sent to blender
-        self.needed_landmarks_indexes = [
-            152,  # Chin
+        self.needed_landmarks_indexes = {
+            "chin": 152,
             # 70,  # eyebrow_lateral.R
             # 107,  # eyebriw_median.R
             # 336,  # eyebrow_lateral.L
             # 300,  # eyebriw_median.L
-        ]
+        }
 
     def __del__(self):
         self.cleanup()
@@ -141,7 +141,9 @@ class AppController:
                 # Transform landmarks position into root bone space
                 local_data = normalize_face(face_lms, euler_angles)
                 # filter out useless face landmarks before sending
-                local_data = {i: local_data[i] for i in self.needed_landmarks_indexes}
+                local_data = {
+                    k: local_data[i] for k, i in self.needed_landmarks_indexes.items()
+                }
                 # Send data
                 self.sender.send_pose(
                     {
